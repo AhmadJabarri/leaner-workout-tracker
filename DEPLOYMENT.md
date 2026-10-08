@@ -16,13 +16,16 @@ Neon PostgreSQL
 
 ## Free-tier tradeoffs
 
-- Koyeb's free instance is limited (512 MB RAM and 0.1 vCPU) and can scale to
-  zero after an idle hour, so the first request after inactivity may be slow.
+- Koyeb's Free Instance has 512 MB RAM, 0.1 vCPU, and 2 GB SSD, and scales to
+  zero after one hour without traffic. Koyeb describes it as a preview/hobby
+  tier, not for production applications. See the current
+  [Koyeb instance limits](https://www.koyeb.com/docs/reference/instances).
+  It can work for learning and trying the app, but expect cold starts and do
+  not treat it as the only dependable copy of your workout records.
 - Neon has a free plan with limited storage and compute. Free-plan allowances
   and terms can change; check the provider dashboard before relying on it.
-- Free hosting is suitable for learning and low-traffic personal use, but it is
-  not a backup plan. Export the database regularly because workout history is
-  valuable and free tiers do not guarantee permanent storage or backups.
+- Export the database regularly because workout history is valuable and free
+  tiers do not guarantee permanent storage or backups.
 
 ## 1. Put the project in a GitHub repository
 
@@ -46,9 +49,15 @@ actual URL. Keep it private if you prefer; connect that repository to Koyeb.
 
 ## 2. Create the hosted PostgreSQL database
 
-Create a PostgreSQL project in Neon and copy its connection string. Add it to
-Koyeb as the secret environment variable `DATABASE_URL`. SQLAlchemy in this
-project uses Psycopg 3, so the URL scheme should be
+Create a PostgreSQL project in Neon and copy both connection strings. Add them
+to Koyeb as secret environment variables:
+
+| Name | Neon connection | Used by |
+| --- | --- | --- |
+| `DATABASE_URL` | Pooled URL (hostname contains `-pooler`) | FastAPI request traffic |
+| `DATABASE_URL_UNPOOLED` | Direct URL (hostname has no `-pooler`) | Alembic schema migrations |
+
+SQLAlchemy in this project uses Psycopg 3, so both URL schemes should be
 `postgresql+psycopg://...`; retain the provider's TLS/SSL query parameters.
 
 Do not put this production URL in either `.env` file in the repository or paste
@@ -65,12 +74,13 @@ Set these runtime environment variables in Koyeb:
 
 | Name | Value |
 | --- | --- |
-| `DATABASE_URL` | The Neon connection string, stored as a secret |
+| `DATABASE_URL` | Neon pooled connection string, stored as a secret |
+| `DATABASE_URL_UNPOOLED` | Neon direct connection string, stored as a secret |
 | `AUTH_COOKIE_SECURE` | `true` |
 
-The container startup command applies Alembic migrations and seeds the built-in
-exercise/routine catalog before starting Uvicorn. The database health endpoint
-is `/health/database`.
+The container startup command applies Alembic migrations using the direct URL,
+then seeds the built-in exercise/routine catalog before starting Uvicorn. The
+database health endpoint is `/health/database`.
 
 ## 4. Check the deployed app
 

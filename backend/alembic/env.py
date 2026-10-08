@@ -12,12 +12,15 @@ from dotenv import load_dotenv
 # access to the values within the .ini file in use.
 config = context.config
 
-# Load the same local connection setting used by FastAPI. Keep credentials out
-# of alembic.ini, which is committed to the project.
+# Load local Neon variables first, then backend/.env as a local fallback.
+# Migrations use Neon's direct URL; FastAPI uses the pooled DATABASE_URL.
+# Keep credentials out of alembic.ini, which is committed to the project.
+project_env = Path(__file__).resolve().parents[2] / ".env.local"
+load_dotenv(project_env)
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-database_url = os.getenv("DATABASE_URL")
+database_url = os.getenv("DATABASE_URL_UNPOOLED") or os.getenv("DATABASE_URL")
 if not database_url:
-    raise RuntimeError("DATABASE_URL is not set in backend/.env")
+    raise RuntimeError("DATABASE_URL is not set in Neon .env.local or backend/.env")
 
 # ConfigParser treats percent signs specially; escape URL-encoded characters
 # while storing the URL, so SQLAlchemy receives the original value later.

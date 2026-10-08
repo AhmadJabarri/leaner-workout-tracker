@@ -13,8 +13,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 
-# Load backend/.env for local development. Environment variables set by the
-# hosting platform still take precedence over values in this file.
+# Load Neon's local variables first, then backend/.env as a local fallback.
+# Existing process variables (such as a hosting platform's DATABASE_URL) win.
+project_env = Path(__file__).resolve().parents[3] / ".env.local"
+load_dotenv(project_env)
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 database_url = os.getenv("DATABASE_URL")
