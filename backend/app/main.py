@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.db.session import engine
 from app.routes.auth import router as auth_router
 from app.routes.catalog import router as catalog_router
+from app.routes.coach import router as coach_router
 from app.routes.progress import router as progress_router
 from app.routes.workouts import router as workouts_router
 
@@ -23,6 +24,7 @@ app.include_router(auth_router)
 app.include_router(workouts_router)
 app.include_router(catalog_router)
 app.include_router(progress_router)
+app.include_router(coach_router)
 
 
 @app.get("/health")

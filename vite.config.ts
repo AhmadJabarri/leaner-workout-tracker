@@ -7,7 +7,8 @@ export default defineConfig({
   server: {
     // Keep browser requests same-origin in development; Vite forwards /api to FastAPI.
     proxy: {
-      '/api': 'http://127.0.0.1:8000',
+      // Override locally when the default FastAPI port is unavailable.
+      '/api': process.env.API_PROXY_TARGET ?? 'http://127.0.0.1:8000',
     },
   },
 })

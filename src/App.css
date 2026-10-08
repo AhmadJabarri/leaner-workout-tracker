@@ -814,13 +814,25 @@ h4 {
   padding: 0 28px 24px 81px;
 }
 
-.coach-prompts span {
+.coach-prompts button {
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
   color: #c2cec6;
   background: var(--surface-soft);
+  font: inherit;
   font-size: 9px;
+  cursor: pointer;
+}
+
+.coach-prompts button:hover:not(:disabled) {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.coach-prompts button:disabled {
+  cursor: wait;
+  opacity: .65;
 }
 
 .coach-composer {
@@ -857,6 +869,7 @@ h4 {
   margin: 9px 0 0;
   color: var(--muted);
   font-size: 9px;
+  line-height: 1.5;
 }
 
 @media (max-width: 720px) {
@@ -1154,9 +1167,21 @@ h4 {
 .coach-message h2 { font-size: 20px; }
 .coach-message p:last-child { font-size: 14px; }
 .coach-prompts { padding: 0 20px 20px; }
-.coach-prompts span { font-size: 12px; }
+.coach-prompts button { font-size: 12px; }
 .coach-composer { padding: 18px 20px; }
 .coach-note { font-size: 12px; }
+
+.coach-feedback,.coach-answer { margin: 16px 20px 20px; }
+.coach-feedback { color: var(--muted); font-size: 13px; }
+.coach-error { padding: 11px 13px; border: 1px solid #6f3939; border-radius: 8px; color: #ffb6b6; background: rgb(97 37 37 / 20%); }
+.coach-answer { padding: 17px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); }
+.coach-answer > p:not(.coach-message-label) { margin: 8px 0 14px; color: var(--text); font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
+.coach-answer small { color: var(--muted); font-size: 11px; }
+
+@media (max-width: 720px) {
+  .coach-feedback,.coach-answer { margin-right: 16px; margin-left: 16px; }
+  .coach-answer { padding: 14px; }
+}
 
 @media (min-width: 760px) {
   .main-nav { position: static; display: flex; width: auto; margin-left: auto; padding: 0; border: 0; background: transparent; backdrop-filter: none; }
