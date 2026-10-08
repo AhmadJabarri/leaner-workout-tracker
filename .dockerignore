@@ -1,0 +1,15 @@
+# Keep credentials, local virtual environments, and generated files out of the image build.
+.git
+.git/**
+node_modules
+**/node_modules
+dist
+dist-ssr
+backend/.venv
+**/.venv
+venv
+**/__pycache__
+*.py[cod]
+.env
+.env.*
+backend/.env

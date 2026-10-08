@@ -1,0 +1,32 @@
+{
+  "name": "Leaner — Workout Tracker",
+  "short_name": "Leaner",
+  "description": "Track your workouts and follow your training progress.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0d1210",
+  "theme_color": "#0d1210",
+  "categories": ["health", "fitness"],
+  "icons": [
+    {
+      "src": "/leaner-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/leaner-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/leaner-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

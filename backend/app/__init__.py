@@ -1,0 +1,1 @@
+"""Leaner FastAPI application package."""
