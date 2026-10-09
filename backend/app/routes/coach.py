@@ -26,7 +26,7 @@ def ask_coach(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> CoachAnswer:
-    """Use only the signed-in user's workout context to generate an explanation."""
+    """Answer using only the signed-in user's profile and workout context."""
     limit_key = str(user.id)
     coach_limiter.check(limit_key, "You've asked the Coach a lot this hour. Try again later.")
     # Count before calling Groq, since failed provider calls can still cost quota.
