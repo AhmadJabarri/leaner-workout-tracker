@@ -1,4 +1,4 @@
-"""Build a bounded workout context and ask Groq to explain it to the user."""
+"""Build a bounded profile + workout context and ask Groq for coaching advice."""
 
 import json
 import os
@@ -12,18 +12,69 @@ from sqlalchemy.orm import Session
 from app.models import (
     Exercise,
     User,
+    UserProfile,
     WorkoutExercise,
     WorkoutRoutine,
     WorkoutSession,
     WorkoutSet,
 )
+from app.schemas.profile import default_protein_target_g
 
 LOOKBACK_WEEKS = 8
 MAX_EXERCISE_SESSION_ROWS = 80
 
 
+SYSTEM_PROMPT = (
+    "You are Leaner Coach, a personal strength-training and nutrition coach for "
+    "one person. You receive their profile (body weight, height, age, goal, daily "
+    "protein target, and notes they want you to always remember) and a summary of "
+    "their recent training, all calculated by the backend.\n\n"
+    "How to coach:\n"
+    "- Ground every answer in their data first: cite the actual exercises, weights, "
+    "frequency, and muscle-group balance you see. Then give clear, practical advice: "
+    "what to do next session, progression (e.g. add reps or a small weight jump), "
+    "exercises to add or swap, recovery, and weekly structure.\n"
+    "- You may use sound, mainstream exercise-science and sports-nutrition knowledge "
+    "to make suggestions, including new exercises they haven't logged.\n"
+    "- Nutrition: use their dailyProteinTargetG as the protein goal and mention it "
+    "when relevant. Suggest simple foods and meal ideas that help reach it. You do "
+    "not see what they ate unless they tell you in the question.\n"
+    "- Always respect notesFromUser.\n"
+    "- Use the supplied numbers as given; don't invent workouts or stats that aren't "
+    "in the context. If data is missing (e.g. no profile or few workouts), say what "
+    "is missing and still give useful general guidance.\n"
+    "- Safety: you are not a doctor. For pain, injury, or medical conditions, give "
+    "cautious general advice and recommend seeing a professional. Never suggest "
+    "extreme diets or supplements beyond common ones like protein powder or creatine.\n"
+    "- Do not guess the user's name. Be direct and encouraging. Keep answers short: "
+    "a sentence of assessment, then up to 5 short bullet points starting with '- '. "
+    "Plain text only, no Markdown headings or bold."
+)
+
+
 class CoachNotConfiguredError(Exception):
     """Raised when the server has no provider key configured."""
+
+
+def _profile_context(db: Session, user: User) -> dict[str, Any] | None:
+    """Summarize the user's saved profile, including backend-calculated values."""
+    profile = db.get(UserProfile, user.id)
+    if profile is None:
+        return None
+
+    weight = float(profile.body_weight_kg) if profile.body_weight_kg is not None else None
+    height = float(profile.height_cm) if profile.height_cm is not None else None
+    bmi = round(weight / (height / 100) ** 2, 1) if weight and height else None
+    return {
+        "bodyWeightKg": weight,
+        "heightCm": height,
+        "age": profile.age,
+        "goal": profile.goal,
+        "bmi": bmi,
+        "dailyProteinTargetG": profile.protein_target_g
+        or default_protein_target_g(profile.body_weight_kg, profile.goal),
+        "notesFromUser": profile.coach_notes,
+    }
 
 
 def _build_workout_context(db: Session, user: User) -> tuple[dict[str, Any], int]:
@@ -85,7 +136,26 @@ def _build_workout_context(db: Session, user: User) -> tuple[dict[str, Any], int
     )
     best_rows = db.execute(best_statement).all()
 
+    # Simple backend-calculated summaries so the model doesn't do arithmetic.
+    now = datetime.now(timezone.utc)
+    session_dates = {row.session_id: row.performed_at for row in recent_rows}
+    sets_by_muscle_group: dict[str, int] = {}
+    for row in recent_rows:
+        sets_by_muscle_group[row.muscle_group] = sets_by_muscle_group.get(row.muscle_group, 0) + int(row.set_count)
+    last_workout = max(session_dates.values(), default=None)
+    if last_workout is not None and last_workout.tzinfo is None:
+        # Stored times are UTC; some drivers return them without a timezone.
+        last_workout = last_workout.replace(tzinfo=timezone.utc)
+
     context = {
+        "today": now.date().isoformat(),
+        "profile": _profile_context(db, user),
+        "trainingSummary": {
+            "workoutsInWindow": len(session_dates),
+            "averageWorkoutsPerWeek": round(len(session_dates) / LOOKBACK_WEEKS, 1),
+            "daysSinceLastWorkout": (now - last_workout).days if last_workout else None,
+            "setsByMuscleGroup": sets_by_muscle_group,
+        },
         "window": f"Most recent {LOOKBACK_WEEKS} weeks",
         "allTimeHeaviestSetByExercise": [
             {"exercise": row.exercise_name, "weightKg": float(row.best_weight_kg)}
@@ -122,32 +192,19 @@ def answer_workout_question(db: Session, user: User, question: str) -> tuple[str
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "You answer questions only from the supplied workout context. "
-                    "Do not use outside fitness knowledge or give generic workout "
-                    "programs, exercise suggestions, targets, or training rules. "
-                    "Do not mention exercises, metrics, units, or effort scales "
-                    "that are absent from the context. The backend calculated the "
-                    "metrics: explain the supplied values, but do not calculate, "
-                    "change, or invent numbers. If the context is empty or does not "
-                    "contain evidence that answers the question, say that plainly "
-                    "and ask the user to log relevant workouts. If the question is "
-                    "not answerable from workout data, say you can only answer from "
-                    "their saved workout data. Do not guess the user's name. Reply "
-                    "concisely in plain text without Markdown formatting."
-                ),
+                "content": SYSTEM_PROMPT,
             },
             {
                 "role": "user",
                 "content": (
                     f"Question: {question}\n\n"
-                    "Verified workout context (JSON):\n"
+                    "Verified profile and workout context (JSON):\n"
                     f"{json.dumps(context, ensure_ascii=False)}"
                 ),
             },
         ],
-        temperature=0.3,
-        max_completion_tokens=500,
+        temperature=0.5,
+        max_completion_tokens=900,
     )
     answer = completion.choices[0].message.content
     if not answer:

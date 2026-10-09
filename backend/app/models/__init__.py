@@ -3,6 +3,7 @@
 # Import all models here so Base.metadata can see every table when migrations
 # are configured in a later step.
 from app.models.exercise import Exercise
+from app.models.profile import UserProfile
 from app.models.routine import RoutineExercise, WorkoutRoutine
 from app.models.user import User
 from app.models.user_session import UserSession
@@ -12,6 +13,7 @@ __all__ = [
     "Exercise",
     "RoutineExercise",
     "User",
+    "UserProfile",
     "UserSession",
     "WorkoutExercise",
     "WorkoutRoutine",

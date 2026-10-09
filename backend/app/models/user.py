@@ -24,3 +24,4 @@ class User(Base):
     exercises: Mapped[list[Exercise]] = relationship(back_populates="owner")
     routines: Mapped[list[WorkoutRoutine]] = relationship(back_populates="owner")
     workout_sessions: Mapped[list[WorkoutSession]] = relationship(back_populates="user")
+    profile: Mapped[UserProfile | None] = relationship(back_populates="user", uselist=False)
