@@ -1,32 +1,92 @@
-# React + TypeScript + Vite
+# Leaner
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Leaner is a personal workout tracker. Log your sets, review your history, follow
+your progress per exercise, and ask an AI Coach questions about your own saved
+training data. It installs on a phone as a progressive web app (PWA).
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Accounts** – username/password sign-in with an HttpOnly session cookie.
+- **Workout logging** – start from a built-in routine (Chest + Triceps,
+  Back + Biceps, Shoulders + Legs) and record reps and weight for each set.
+- **History** – every saved workout, newest first.
+- **Progress** – per-exercise charts of heaviest set, volume, and set count.
+- **AI Coach** – answers questions using a summary of your last 8 weeks of
+  workouts plus all-time heaviest sets. Powered by [Groq](https://groq.com).
 
-## React Compiler
+## Tech stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Layer | Tools |
+| --- | --- |
+| Frontend | React 19, TypeScript, Vite |
+| Backend | FastAPI, SQLAlchemy 2, Alembic |
+| Database | PostgreSQL ([Neon](https://neon.com) in production) |
+| AI | Groq API |
+| Hosting | Koyeb (one Docker service serving both API and frontend) |
 
-## Expanding the Oxlint configuration
+## Project structure
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```text
+src/                 React app (pages, API clients, types)
+public/              PWA manifest, service worker, icons
+backend/app/         FastAPI app
+  routes/            auth, workouts, catalog, progress, coach endpoints
+  models/            SQLAlchemy tables
+  services/coach.py  Builds the workout context sent to the AI Coach
+  seed.py            Built-in exercise and routine catalog
+backend/alembic/     Database migrations
+Dockerfile           Production image (builds React, runs FastAPI)
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Run locally
+
+You need Node.js 22+, Python 3.13+, and a PostgreSQL database.
+
+**1. Backend**
+
+```powershell
+cd backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env   # then edit DATABASE_URL and GROQ_API_KEY
+alembic upgrade head
+python -m app.seed
+uvicorn app.main:app --reload
+```
+
+The API runs on <http://127.0.0.1:8000>. Interactive docs are at `/docs`.
+
+**2. Frontend** (in a second terminal, from the project root)
+
+```powershell
+npm install
+npm run dev
+```
+
+Vite serves the app and forwards `/api` requests to the backend.
+
+## Environment variables
+
+| Name | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string (`postgresql+psycopg://...`) |
+| `DATABASE_URL_UNPOOLED` | Direct connection used for migrations in production |
+| `AUTH_COOKIE_SECURE` | `true` when served over HTTPS, `false` for local HTTP |
+| `GROQ_API_KEY` | Enables the AI Coach |
+| `GROQ_MODEL` | Optional; defaults to `openai/gpt-oss-120b` |
+
+Never commit real values. `.env` files are ignored by Git.
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the Koyeb + Neon setup.
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Start the Vite dev server |
+| `npm run build` | Type-check and build the frontend into `dist/` |
+| `npm run lint` | Lint with Oxlint |
+| `npm run preview` | Preview the production build |
