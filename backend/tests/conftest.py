@@ -9,7 +9,9 @@ import os
 
 # Must be set before app.db.session is imported, which requires DATABASE_URL.
 os.environ["DATABASE_URL"] = "sqlite://"
-os.environ.pop("GROQ_API_KEY", None)
+# An empty value (not a missing one) stops load_dotenv from filling in a real key
+# from backend/.env, so tests can never call Groq.
+os.environ["GROQ_API_KEY"] = ""
 
 from collections.abc import Generator
 
@@ -23,7 +25,15 @@ import app.models  # noqa: F401  (registers every table on Base.metadata)
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.rate_limit import ALL_LIMITERS
 from app.seed import _ensure_local_user, _sync_exercises, _sync_routines
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits() -> None:
+    # Limiters live in process memory, so clear them to keep tests independent.
+    for limiter in ALL_LIMITERS:
+        limiter.reset()
 
 
 @pytest.fixture

@@ -20,6 +20,7 @@ from app.dependencies import (
     get_current_user,
 )
 from app.models import User, UserSession
+from app.rate_limit import client_ip, failed_signin_limiter, signup_limiter
 from app.schemas.auth import SignInRequest, SignUpRequest, UserRead
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -67,10 +68,13 @@ def _start_session(db: Session, user: User, response: Response) -> None:
 )
 def sign_up(
     payload: SignUpRequest,
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
 ) -> User:
     """Validate uniqueness, hash the password, save the user, and sign them in."""
+    ip_key = client_ip(request)
+    signup_limiter.check(ip_key, "Too many new accounts from this network. Try again later.")
     username = payload.username
     existing_user = db.scalar(select(User.id).where(User.username == username))
     if existing_user is not None:
@@ -114,16 +118,24 @@ def sign_up(
             ) from error
         raise
 
+    signup_limiter.hit(ip_key)
     return user
 
 
 @router.post("/signin", response_model=UserRead, summary="Sign in to an account")
 def sign_in(
     payload: SignInRequest,
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
 ) -> User:
     """Verify credentials and issue a fresh, expiring session cookie."""
+    # Only failed attempts are counted, so normal sign-ins never lock anyone out.
+    limit_keys = (f"user:{payload.username}", f"ip:{client_ip(request)}")
+    for key in limit_keys:
+        failed_signin_limiter.check(
+            key, "Too many failed sign-in attempts. Wait a few minutes and try again."
+        )
     user = db.scalar(select(User).where(User.username == payload.username))
     password = payload.password.get_secret_value()
     try:
@@ -134,6 +146,8 @@ def sign_in(
         password_is_valid = False
 
     if not password_is_valid or user is None:
+        for key in limit_keys:
+            failed_signin_limiter.hit(key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Username or password is incorrect.",

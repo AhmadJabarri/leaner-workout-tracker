@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.models import User
+from app.rate_limit import coach_limiter
 from app.schemas.coach import CoachAnswer, CoachInput
 from app.services.coach import (
     LOOKBACK_WEEKS,
@@ -26,6 +27,10 @@ def ask_coach(
     user: User = Depends(get_current_user),
 ) -> CoachAnswer:
     """Use only the signed-in user's workout context to generate an explanation."""
+    limit_key = str(user.id)
+    coach_limiter.check(limit_key, "You've asked the Coach a lot this hour. Try again later.")
+    # Count before calling Groq, since failed provider calls can still cost quota.
+    coach_limiter.hit(limit_key)
     try:
         answer, sessions_analyzed = answer_workout_question(db, user, payload.question)
     except CoachNotConfiguredError as error:
