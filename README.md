@@ -22,7 +22,7 @@ training data. It installs on a phone as a progressive web app (PWA).
 | Backend | FastAPI, SQLAlchemy 2, Alembic |
 | Database | PostgreSQL ([Neon](https://neon.com) in production) |
 | AI | Groq API |
-| Hosting | Koyeb (one Docker service serving both API and frontend) |
+| Hosting | Render (one Docker service serving both API and frontend) |
 
 ## Project structure
 
@@ -80,7 +80,7 @@ Never commit real values. `.env` files are ignored by Git.
 
 ## Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the Koyeb + Neon setup.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the Render + Neon setup.
 
 ## Scripts
 

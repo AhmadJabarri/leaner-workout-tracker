@@ -1,4 +1,4 @@
-# Checks every pull request (and every push to main) before it can reach Koyeb.
+# Checks every pull request (and every push to main) before it can reach Render.
 name: CI
 
 on:
