@@ -1,117 +1,169 @@
-import { useState, type FormEvent } from 'react'
-import { askCoach, type CoachAnswer } from '../api/coach'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { askCoach } from '../api/coach'
+import { CoachIcon, SendIcon } from '../components/Icons'
 
 const suggestedQuestions = [
-  'How has my bench press changed?',
-  'Am I training consistently?',
   'What should I focus on next?',
+  'How much protein should I eat today?',
+  'Am I training consistently?',
+  'Which muscles am I neglecting?',
 ]
+
+type Message = { id: string; role: 'user' | 'coach'; text: string; meta?: string; isError?: boolean }
 
 type CoachPageProps = {
   workoutCount: number
+  hasProfile: boolean
+  onOpenProfile: () => void
 }
 
-function CoachPage({ workoutCount }: CoachPageProps) {
+/** Render the Coach's plain-text answer, turning "- " lines into a bullet list. */
+function CoachText({ text }: { text: string }) {
+  const blocks: { type: 'p' | 'ul'; lines: string[] }[] = []
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    const isBullet = /^[-•*]\s+/.test(line)
+    const content = line.replace(/^[-•*]\s+/, '')
+    const last = blocks.at(-1)
+    if (isBullet && last?.type === 'ul') last.lines.push(content)
+    else blocks.push({ type: isBullet ? 'ul' : 'p', lines: [content] })
+  }
+  return (
+    <>
+      {blocks.map((block, index) =>
+        block.type === 'ul' ? (
+          <ul key={index}>{block.lines.map((line, lineIndex) => <li key={lineIndex}>{line}</li>)}</ul>
+        ) : (
+          <p key={index}>{block.lines[0]}</p>
+        ),
+      )}
+    </>
+  )
+}
+
+function CoachPage({ workoutCount, hasProfile, onOpenProfile }: CoachPageProps) {
   const [question, setQuestion] = useState('')
-  const [answer, setAnswer] = useState<CoachAnswer | null>(null)
-  const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [errorMessage, setErrorMessage] = useState('')
+  const [messages, setMessages] = useState<Message[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const endRef = useRef<HTMLDivElement>(null)
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const trimmedQuestion = question.trim()
-    if (!trimmedQuestion || status === 'loading') return
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  }, [messages, isLoading])
 
-    setStatus('loading')
-    setErrorMessage('')
-    setAnswer(null)
+  async function ask(text: string) {
+    const trimmed = text.trim()
+    if (!trimmed || isLoading) return
+
+    setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text: trimmed }])
+    setQuestion('')
+    setIsLoading(true)
     try {
-      setAnswer(await askCoach(trimmedQuestion))
-      setStatus('idle')
+      const answer = await askCoach(trimmed)
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'coach',
+          text: answer.answer,
+          meta: `Based on ${answer.sessionsAnalyzed} ${answer.sessionsAnalyzed === 1 ? 'workout' : 'workouts'} from the last ${answer.lookbackWeeks} weeks`,
+        },
+      ])
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Could not reach the Coach. Try again.')
-      setStatus('error')
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'coach',
+          isError: true,
+          text: error instanceof Error ? error.message : 'Could not reach the Coach. Try again.',
+        },
+      ])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    void ask(question)
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Enter sends on desktop; Shift+Enter adds a new line.
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      void ask(question)
     }
   }
 
   return (
-    <>
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">TRAINING GUIDANCE</p>
-          <h1>AI Coach</h1>
-          <p className="page-intro">Ask a question and get an explanation based on your saved training.</p>
-        </div>
-        <span className="coach-status">Beta</span>
+    <div className="coach-page">
+      <header className="page-title">
+        <h1>Coach</h1>
+        <p className="muted">Advice based on your workouts and profile.</p>
       </header>
 
-      <section className="coach-panel" aria-labelledby="coach-panel-title">
-        <div className="coach-message">
-          <div className="coach-avatar" aria-hidden="true">L</div>
-          <div>
-            <p className="coach-message-label">LEANER COACH</p>
-            <h2 id="coach-panel-title">Your training, explained.</h2>
-            <p>
-              The backend calculates your workout metrics. The Coach uses those results to explain
-              patterns and suggest what to consider next.
+      {!hasProfile && (
+        <button className="alert alert-info card-button" type="button" onClick={onOpenProfile}>
+          Add your weight and goal in Profile so the Coach can tailor training and protein advice →
+        </button>
+      )}
+
+      <div className="chat" aria-live="polite">
+        {messages.length === 0 && (
+          <div className="chat-intro">
+            <span className="icon-badge icon-badge-lg icon-badge-accent"><CoachIcon size={28} /></span>
+            <h2>Hi! I’m your Leaner coach.</h2>
+            <p className="muted">
+              {workoutCount === 0
+                ? 'Log a workout or two and I can give you specific advice. You can still ask me anything now.'
+                : 'Ask me about your progress, what to train next, or what to eat.'}
             </p>
+            <div className="suggestions">
+              {suggestedQuestions.map((suggestion) => (
+                <button key={suggestion} className="chip" type="button" onClick={() => void ask(suggestion)} disabled={isLoading}>
+                  {suggestion}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-
-        <div className="coach-prompts" aria-label="Suggested questions">
-          {suggestedQuestions.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              onClick={() => setQuestion(suggestion)}
-              disabled={status === 'loading'}
-            >
-              {suggestion}
-            </button>
-          ))}
-        </div>
-
-        <form className="coach-composer" onSubmit={(event) => void handleSubmit(event)}>
-          <label className="field-label" htmlFor="coach-question">Your question</label>
-          <div className="coach-input-row">
-            <textarea
-              id="coach-question"
-              className="form-control"
-              rows={2}
-              minLength={1}
-              maxLength={1000}
-              placeholder="For example: How has my bench press progressed?"
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-              disabled={status === 'loading'}
-              required
-            />
-            <button className="primary-button" type="submit" disabled={!question.trim() || status === 'loading'}>
-              {status === 'loading' ? 'Thinking…' : 'Ask'}
-            </button>
-          </div>
-          <p className="coach-note">
-            {workoutCount === 0
-              ? 'No workouts are saved yet, so the Coach may have little history to work from.'
-              : 'Your workout context is limited to recent summaries and all-time heaviest sets.'}
-            {' '}Your question and this context are sent to Groq to generate the answer.
-          </p>
-        </form>
-
-        {status === 'loading' && <p className="coach-feedback" role="status">Reviewing your workout history…</p>}
-        {status === 'error' && <p className="coach-feedback coach-error" role="alert">{errorMessage}</p>}
-        {answer && (
-          <section className="coach-answer" aria-label="Coach answer" aria-live="polite">
-            <p className="coach-message-label">COACH RESPONSE</p>
-            <p>{answer.answer}</p>
-            <small>
-              Based on {answer.sessionsAnalyzed} recent {answer.sessionsAnalyzed === 1 ? 'workout' : 'workouts'}
-              {' '}from the last {answer.lookbackWeeks} weeks, plus all-time heaviest sets.
-            </small>
-          </section>
         )}
-      </section>
-    </>
+
+        {messages.map((message) => (
+          <div key={message.id} className={`bubble bubble-${message.role}${message.isError ? ' bubble-error' : ''}`}>
+            {message.role === 'coach' ? <CoachText text={message.text} /> : <p>{message.text}</p>}
+            {message.meta && <small className="muted">{message.meta}</small>}
+          </div>
+        ))}
+
+        {isLoading && (
+          <div className="bubble bubble-coach typing" role="status" aria-label="Coach is thinking">
+            <span /><span /><span />
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <form className="composer" onSubmit={handleSubmit}>
+        <textarea
+          className="input"
+          rows={1}
+          maxLength={1000}
+          placeholder="Ask your coach…"
+          aria-label="Your question"
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={isLoading}
+        />
+        <button className="send-button" type="submit" disabled={!question.trim() || isLoading} aria-label="Send">
+          <SendIcon size={20} />
+        </button>
+      </form>
+      <p className="muted tiny composer-note">Your question, profile, and workout summary are sent to Groq to generate answers.</p>
+    </div>
   )
 }
 

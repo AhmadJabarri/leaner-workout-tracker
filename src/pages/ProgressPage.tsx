@@ -1,19 +1,22 @@
-// Displays server-calculated progress counts; this page does not derive metrics.
-import { useEffect, useRef, useState } from 'react'
+// Displays server-calculated progress; this page does not derive the metrics itself.
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   fetchExerciseProgress,
   fetchProgressSummary,
   type ExerciseProgress,
   type ProgressSummary,
 } from '../api/progress'
-import type { Exercise } from '../types/workout'
 import ExerciseProgressChart from '../components/ExerciseProgressChart'
+import { ProgressIcon } from '../components/Icons'
+import type { Exercise, WorkoutSession } from '../types/workout'
+import { formatDay, formatKg, formatVolume } from '../utils/format'
 
 type ProgressPageProps = {
   exercises: Exercise[]
+  workouts: WorkoutSession[]
 }
 
-function ProgressPage({ exercises }: ProgressPageProps) {
+function ProgressPage({ exercises, workouts }: ProgressPageProps) {
   const [summary, setSummary] = useState<ProgressSummary | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [retry, setRetry] = useState(0)
@@ -22,9 +25,19 @@ function ProgressPage({ exercises }: ProgressPageProps) {
   const [exerciseStatus, setExerciseStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const exerciseRequestNumber = useRef(0)
 
+  // Exercises you've actually logged, most-trained first, become quick-pick chips.
+  const trainedExercises = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const workout of workouts) {
+      for (const entry of workout.exercises) counts.set(entry.exerciseId, (counts.get(entry.exerciseId) ?? 0) + 1)
+    }
+    return exercises
+      .filter((exercise) => counts.has(exercise.id))
+      .sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
+  }, [exercises, workouts])
+
   useEffect(() => {
     let ignoreResult = false
-
     async function loadSummary() {
       setStatus('loading')
       try {
@@ -36,7 +49,6 @@ function ProgressPage({ exercises }: ProgressPageProps) {
         if (!ignoreResult) setStatus('error')
       }
     }
-
     void loadSummary()
     return () => {
       ignoreResult = true
@@ -51,7 +63,6 @@ function ProgressPage({ exercises }: ProgressPageProps) {
       setExerciseStatus('idle')
       return
     }
-
     setExerciseStatus('loading')
     try {
       const result = await fetchExerciseProgress(exerciseId)
@@ -63,87 +74,103 @@ function ProgressPage({ exercises }: ProgressPageProps) {
     }
   }
 
-  return (
-    <div className="progress-page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">YOUR TRAINING OVER TIME</p>
-          <h1>Progress</h1>
-          <p className="page-intro">Useful signals from the work you put in.</p>
-        </div>
-      </header>
+  // Open the most-trained exercise automatically the first time there's data.
+  const autoSelected = useRef(false)
+  useEffect(() => {
+    if (autoSelected.current || !trainedExercises[0]) return
+    autoSelected.current = true
+    void loadExerciseProgress(trainedExercises[0].id)
+  }, [trainedExercises])
 
-      {status === 'loading' && <p role="status">Loading progress summary…</p>}
+  const recentPoints = exerciseProgress?.workouts.slice(-5).reverse() ?? []
+
+  return (
+    <div className="stack">
+      <header className="page-title"><h1>Progress</h1></header>
+
+      {status === 'loading' && <p className="muted" role="status">Loading progress…</p>}
       {status === 'error' && (
-        <div role="alert">
-          <p>Could not load progress. Check that the backend and database are running.</p>
-          <button className="secondary-button" type="button" onClick={() => setRetry((attempt) => attempt + 1)}>
-            Try again
-          </button>
+        <div className="alert alert-error" role="alert">
+          <p>Could not load progress.</p>
+          <button className="button button-secondary" type="button" onClick={() => setRetry((attempt) => attempt + 1)}>Try again</button>
         </div>
       )}
-      {status === 'ready' && summary && (
-        <>
-          {summary.totalSessions === 0 ? (
-            <section className="progress-empty">
-              <span className="progress-empty-mark" aria-hidden="true">↗</span>
-              <h2>Your progress starts with a workout</h2>
-              <p>Log a few sessions to see your exercise history and training trends here.</p>
-            </section>
-          ) : (
-            <section className="progress-stats" aria-label="Training summary">
-              <article><span>Last 7 days</span><strong>{summary.sessionsLast7Days}</strong><small>sessions</small></article>
-              <article><span>Logged work</span><strong>{summary.totalSets}</strong><small>sets</small></article>
-              <article><span>Exercises</span><strong>{summary.uniqueExercises}</strong><small>tracked</small></article>
-            </section>
-          )}
 
-          <section className="progress-note" aria-labelledby="exercise-progress-title">
-            <h2 id="exercise-progress-title">Exercise progression</h2>
-            <label className="field-label" htmlFor="progress-exercise-select">Choose an exercise</label>
+      {status === 'ready' && summary && summary.totalSessions === 0 && (
+        <section className="empty-state">
+          <span className="icon-badge icon-badge-lg"><ProgressIcon size={28} /></span>
+          <h2>Progress starts with a workout</h2>
+          <p className="muted">Log a few sessions to see your strength trends here.</p>
+        </section>
+      )}
+
+      {status === 'ready' && summary && summary.totalSessions > 0 && (
+        <>
+          <section className="stat-grid" aria-label="Training summary">
+            <div className="card stat"><strong>{summary.totalSessions}</strong><span>workouts</span></div>
+            <div className="card stat"><strong>{summary.sessionsLast7Days}</strong><span>last 7 days</span></div>
+            <div className="card stat"><strong>{summary.totalSets}</strong><span>total sets</span></div>
+            <div className="card stat"><strong>{summary.uniqueExercises}</strong><span>exercises</span></div>
+          </section>
+
+          <section className="card stack-sm" aria-labelledby="exercise-progress-title">
+            <h2 id="exercise-progress-title">Exercise progress</h2>
+
+            {trainedExercises.length > 0 && (
+              <div className="chip-row" role="list">
+                {trainedExercises.slice(0, 8).map((exercise) => (
+                  <button
+                    role="listitem"
+                    key={exercise.id}
+                    type="button"
+                    className={`chip${selectedExerciseId === exercise.id ? ' active' : ''}`}
+                    onClick={() => void loadExerciseProgress(exercise.id)}
+                  >
+                    {exercise.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <select
-              id="progress-exercise-select"
-              className="form-control"
+              className="input"
+              aria-label="Choose any exercise"
               value={selectedExerciseId}
               onChange={(event) => void loadExerciseProgress(event.target.value)}
             >
-              <option value="">Select an exercise</option>
+              <option value="">All exercises…</option>
               {exercises.map((exercise) => (
                 <option key={exercise.id} value={exercise.id}>{exercise.name}</option>
               ))}
             </select>
 
-            {exerciseStatus === 'idle' && <p>Select an exercise to view its saved workout history.</p>}
-            {exerciseStatus === 'loading' && <p role="status">Loading exercise history…</p>}
+            {exerciseStatus === 'loading' && <p className="muted" role="status">Loading…</p>}
             {exerciseStatus === 'error' && (
-              <div role="alert">
-                <p>Could not load this exercise’s progress.</p>
-                <button className="secondary-button" type="button" onClick={() => void loadExerciseProgress(selectedExerciseId)}>
-                  Try again
-                </button>
+              <div className="alert alert-error" role="alert">
+                <p>Could not load this exercise.</p>
+                <button className="button button-secondary" type="button" onClick={() => void loadExerciseProgress(selectedExerciseId)}>Try again</button>
               </div>
             )}
             {exerciseStatus === 'ready' && exerciseProgress && (
               exerciseProgress.workouts.length === 0 ? (
-                <p>No saved workouts include {exerciseProgress.exerciseName} yet.</p>
+                <p className="muted">No workouts include {exerciseProgress.exerciseName} yet.</p>
               ) : (
                 <>
-                  <p>Personal best weight: <strong>{exerciseProgress.personalBestKg} kg</strong></p>
-                  <ExerciseProgressChart exerciseName={exerciseProgress.exerciseName} points={exerciseProgress.workouts} />
-                  <div className="history-list" aria-label={exerciseProgress.exerciseName + ' progression history'}>
-                    {exerciseProgress.workouts.map((workout, index) => (
-                      <article className="workout-card" key={exerciseProgress.exerciseId + '-' + index}>
-                        <header className="workout-card-heading">
-                          <h3>{new Date(workout.performedAt).toLocaleDateString(undefined, {
-                            year: 'numeric', month: 'short', day: 'numeric',
-                          })}</h3>
-                          <span className="workout-set-count">{workout.setCount} sets</span>
-                        </header>
-                        <p>Heaviest set: <strong>{workout.maxWeightKg} kg</strong></p>
-                        <p>Volume: <strong>{workout.volumeKgReps} kg × reps</strong></p>
-                      </article>
-                    ))}
+                  <div className="pr-banner">
+                    <span className="muted small">Personal best</span>
+                    <strong>{formatKg(exerciseProgress.personalBestKg ?? 0)}</strong>
                   </div>
+                  <ExerciseProgressChart exerciseName={exerciseProgress.exerciseName} points={exerciseProgress.workouts} />
+                  <h3 className="section-label">Recent sessions</h3>
+                  <ul className="plain-list">
+                    {recentPoints.map((point, index) => (
+                      <li key={`${point.performedAt}-${index}`} className="list-row">
+                        <span>{formatDay(point.performedAt)}</span>
+                        <span className="muted small">{point.setCount} sets · {formatVolume(point.volumeKgReps)}</span>
+                        <strong>{formatKg(point.maxWeightKg)}</strong>
+                      </li>
+                    ))}
+                  </ul>
                 </>
               )
             )}
