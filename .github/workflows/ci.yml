@@ -1,0 +1,61 @@
+# Checks every pull request (and every push to main) before it can reach Koyeb.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  frontend:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  backend:
+    name: Backend tests and migrations
+    runs-on: ubuntu-latest
+    services:
+      # A throwaway PostgreSQL server proves migrations and seeding work on the
+      # same database engine as production. It is deleted after the job.
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: leaner
+          POSTGRES_PASSWORD: leaner
+          POSTGRES_DB: leaner
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U leaner"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql+psycopg://leaner:leaner@localhost:5432/leaner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Apply migrations and seed
+        run: |
+          alembic upgrade head
+          python -m app.seed
+      - name: Check models match migrations
+        run: alembic check
+      - name: Run tests
+        run: python -m pytest -q

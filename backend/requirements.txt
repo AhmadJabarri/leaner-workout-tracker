@@ -1,10 +1,11 @@
 # Python dependencies for the API, database connection, and schema migrations.
-fastapi
-uvicorn[standard]
-SQLAlchemy>=2.0,<3.0
-alembic>=1.13,<2.0
-psycopg[binary]>=3.2,<4.0
-python-dotenv>=1.0,<2.0
-email-validator>=2.2,<3.0
-pwdlib[argon2]>=0.2,<1.0
-groq>=1.0,<2.0
+# Upper bounds stop a surprise major release from breaking a deploy.
+fastapi>=0.142,<0.143
+uvicorn[standard]>=0.54,<0.55
+SQLAlchemy>=2.1,<2.2
+alembic>=1.20,<2.0
+psycopg[binary]>=3.3,<4.0
+python-dotenv>=1.2,<2.0
+email-validator>=2.3,<3.0
+pwdlib[argon2]>=0.3,<0.4
+groq>=1.7,<2.0
