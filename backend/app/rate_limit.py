@@ -1,6 +1,6 @@
 """Small in-memory rate limiter for sign-in attempts and AI Coach requests.
 
-Leaner runs as a single Koyeb instance, so per-process memory is enough. The
+Leaner runs as a single Render instance, so per-process memory is enough. The
 counters reset when the server restarts, which is acceptable for slowing down
 password guessing and protecting the Groq bill; it is not a billing ledger.
 """
@@ -51,7 +51,7 @@ class RateLimiter:
 
 
 def client_ip(request: Request) -> str:
-    """Use the first X-Forwarded-For address set by Koyeb's proxy, if present."""
+    """Use the first X-Forwarded-For address set by the hosting proxy, if present."""
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()
