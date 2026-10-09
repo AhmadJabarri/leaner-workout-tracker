@@ -1,6 +1,6 @@
 """Seed the database with the app's built-in exercises and workout routines.
 
-This copies the current frontend starter catalog into PostgreSQL. It is safe to
+This is the source of truth for the built-in catalog the app serves. It is safe to
 run again: shared built-in records are synchronized by their stable IDs, while
 custom records with conflicting IDs are protected from being overwritten.
 """
@@ -13,8 +13,7 @@ from app.db.session import SessionLocal
 from app.models import Exercise, RoutineExercise, User, WorkoutRoutine
 
 
-# Stable IDs match src/data/exercises.ts so the frontend can migrate to the API
-# later without changing the exercise references stored by its workout screens.
+# Stable IDs are stored in saved workouts, so never rename an existing ID.
 BUILTIN_EXERCISES: tuple[tuple[str, str, str, str | None], ...] = (
     ("dumbbell-bench-press", "Dumbbell Bench Press", "Chest", "Dumbbell"),
     ("incline-dumbbell-bench-press", "Incline Dumbbell Bench Press", "Chest", "Dumbbell"),
@@ -39,7 +38,7 @@ BUILTIN_EXERCISES: tuple[tuple[str, str, str, str | None], ...] = (
 )
 
 
-# Each exercise ID and its order match src/data/routines.ts. Position starts at 1.
+# Each routine lists exercise IDs in display order. Position starts at 1.
 BUILTIN_ROUTINES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         "chest-triceps",
