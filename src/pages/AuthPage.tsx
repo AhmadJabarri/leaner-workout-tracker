@@ -41,24 +41,22 @@ function AuthPage({ onAuthenticated }: AuthPageProps) {
 
   return (
     <main className="auth-screen">
-      <a className="auth-brand" href="#home" aria-label="Leaner">
-        <span className="auth-brand-mark" aria-hidden="true">L</span>
-        <span>leaner</span>
-      </a>
+      <div className="auth-brand">
+        <span className="brand-mark brand-mark-lg" aria-hidden="true">L</span>
+        <span className="brand-name">leaner</span>
+      </div>
 
       <section className="auth-panel" aria-labelledby="auth-title">
-        <p className="eyebrow">YOUR TRAINING, YOUR RECORD</p>
         <h1 id="auth-title">{mode === 'signin' ? 'Welcome back' : 'Create your account'}</h1>
-        <p className="auth-intro">
+        <p className="muted">
           {mode === 'signin'
             ? 'Sign in to pick up where your training left off.'
             : 'A few details, then you’re ready to train.'}
         </p>
 
-        <div className="auth-tabs" role="tablist" aria-label="Account access">
+        <div className="segmented" role="tablist" aria-label="Account access">
           <button
             className={mode === 'signin' ? 'active' : ''}
-            id="signin-tab"
             role="tab"
             aria-selected={mode === 'signin'}
             aria-controls="auth-form-panel"
@@ -69,7 +67,6 @@ function AuthPage({ onAuthenticated }: AuthPageProps) {
           </button>
           <button
             className={mode === 'signup' ? 'active' : ''}
-            id="signup-tab"
             role="tab"
             aria-selected={mode === 'signup'}
             aria-controls="auth-form-panel"
@@ -80,12 +77,12 @@ function AuthPage({ onAuthenticated }: AuthPageProps) {
           </button>
         </div>
 
-        <form id="auth-form-panel" className="auth-form" onSubmit={(event) => void handleSubmit(event)}>
-          <label className="auth-field" htmlFor="auth-username">
-            <span>Username</span>
+        <form id="auth-form-panel" className="stack-sm" onSubmit={(event) => void handleSubmit(event)}>
+          <label className="field" htmlFor="auth-username">
+            <span className="field-label">Username</span>
             <input
               id="auth-username"
-              className="form-control"
+              className="input"
               type="text"
               name="username"
               autoComplete="username"
@@ -99,15 +96,15 @@ function AuthPage({ onAuthenticated }: AuthPageProps) {
               onChange={(event) => setUsername(event.target.value)}
               required
             />
-            {mode === 'signup' && <small>3–32 letters, numbers, or underscores.</small>}
+            {mode === 'signup' && <small className="muted">3–32 letters, numbers, or underscores.</small>}
           </label>
 
-          <label className="auth-field" htmlFor="auth-password">
-            <span>Password</span>
-            <span className="auth-password-wrap">
+          <label className="field" htmlFor="auth-password">
+            <span className="field-label">Password</span>
+            <span className="password-wrap">
               <input
                 id="auth-password"
-                className="form-control"
+                className="input"
                 type={showPassword ? 'text' : 'password'}
                 name="password"
                 autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
@@ -119,7 +116,7 @@ function AuthPage({ onAuthenticated }: AuthPageProps) {
                 required
               />
               <button
-                className="auth-password-toggle"
+                className="password-toggle"
                 type="button"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
                 onClick={() => setShowPassword((visible) => !visible)}
@@ -127,19 +124,14 @@ function AuthPage({ onAuthenticated }: AuthPageProps) {
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </span>
-            {mode === 'signup' && <small>Use at least 12 characters.</small>}
           </label>
 
-          {error && <p className="auth-error" role="alert">{error}</p>}
+          {error && <p className="alert alert-error" role="alert">{error}</p>}
 
-          <button className="primary-button auth-submit" type="submit" disabled={isSubmitting}>
-            {isSubmitting
-              ? 'Please wait…'
-              : mode === 'signin' ? 'Sign in' : 'Create account'}
+          <button className="button button-primary button-block" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
           </button>
         </form>
-
-        <p className="auth-footnote">Your workouts stay connected to your account.</p>
       </section>
     </main>
   )

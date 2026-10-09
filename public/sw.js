@@ -1,6 +1,6 @@
 // Cache the app shell and same-origin static assets so Leaner can open offline.
 // Never intercept /api: workout records, credentials, and session responses stay network-only.
-const CACHE_NAME = 'leaner-app-shell-v1'
+const CACHE_NAME = 'leaner-app-shell-v2'
 const APP_SHELL = [
   '/',
   '/manifest.webmanifest',

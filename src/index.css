@@ -1,49 +1,105 @@
+/* Design tokens. Light is the default; dark follows the phone's setting. */
 :root {
-  color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  color: #e7eee9;
-  background: #0d1210;
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
 
-  --page-bg: #0d1210;
-  --ink: #e7eee9;
-  --muted: #93a099;
-  --green: #79c9a3;
-  --green-dark: #a3dfc1;
-  --line: #26332c;
-  --surface: #141b17;
-  --surface-raised: #19231d;
-  --surface-soft: #101713;
-  --green-soft: #1b3026;
+  --bg: #f4f6f5;
+  --surface: #ffffff;
+  --surface-2: #eef1ef;
+  --ink: #111816;
+  --muted: #64716a;
+  --line: #e1e6e3;
+  --accent: #14945f;
+  --accent-ink: #ffffff;
+  --accent-soft: #dcf3e8;
+  --accent-text: #0e7a4d;
+  --danger: #d23f3f;
+  --danger-soft: #fde8e8;
+  --info-soft: #e6f0fb;
+  --shadow: 0 1px 2px rgb(16 24 20 / 6%), 0 2px 8px rgb(16 24 20 / 4%);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --tab-height: 64px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0f0d;
+    --surface: #151b18;
+    --surface-2: #1d2521;
+    --ink: #e9efeb;
+    --muted: #8f9c95;
+    --line: #26302b;
+    --accent: #4fd093;
+    --accent-ink: #06130d;
+    --accent-soft: #173326;
+    --accent-text: #6fe0aa;
+    --danger: #ff6b6b;
+    --danger-soft: #3a1b1b;
+    --info-soft: #172433;
+    --shadow: none;
+  }
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  background: var(--bg);
+}
+
 body {
   min-width: 320px;
   min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   color: var(--ink);
-  background: var(--page-bg);
+  background: var(--bg);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
 }
 
 button,
-a {
+input,
+select,
+textarea {
   font: inherit;
+  color: inherit;
 }
 
-button:focus-visible,
-a:focus-visible {
-  outline: 3px solid #79c9a3;
-  outline-offset: 3px;
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
 }
 
 ::selection {
-  color: #0d1210;
-  background: #79c9a3;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+[hidden] {
+  display: none !important;
 }

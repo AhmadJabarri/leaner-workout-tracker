@@ -1,11 +1,14 @@
 // Handles workout entry; custom exercises are saved by FastAPI before use.
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, TrashIcon } from '../components/Icons'
 import type {
   Exercise,
   WorkoutRoutine,
-  WorkoutSubmission,
+  WorkoutSession,
   WorkoutSet,
+  WorkoutSubmission,
 } from '../types/workout'
+import { exerciseName } from '../utils/format'
 
 type SetDraft = {
   id: string
@@ -21,153 +24,179 @@ type ExerciseDraft = {
   sets: SetDraft[]
 }
 
+type WorkoutDraft = {
+  routineId: string
+  startedAt: string
+  exercises: ExerciseDraft[]
+  note: string
+}
+
 type WorkoutPageProps = {
   exercises: Exercise[]
   routines: WorkoutRoutine[]
+  workouts: WorkoutSession[]
   onExerciseCreated: (exercise: Omit<Exercise, 'id'>) => Promise<Exercise>
   onWorkoutSaved: (workout: WorkoutSubmission) => Promise<void>
+  onClose: () => void
 }
 
-function createEmptySet(): SetDraft {
-  return { id: crypto.randomUUID(), completed: false, reps: '', weight: '' }
+// An in-progress workout survives the PWA being closed or the phone reloading it.
+const DRAFT_KEY = 'leaner.workoutDraft.v1'
+
+function loadDraft(): WorkoutDraft | null {
+  try {
+    const saved = localStorage.getItem(DRAFT_KEY)
+    return saved ? (JSON.parse(saved) as WorkoutDraft) : null
+  } catch {
+    return null
+  }
+}
+
+function storeDraft(draft: WorkoutDraft | null) {
+  try {
+    if (draft) localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
+    else localStorage.removeItem(DRAFT_KEY)
+  } catch {
+    // Storage can be unavailable (private mode); the workout still works in memory.
+  }
+}
+
+function createSet(previous?: SetDraft): SetDraft {
+  return { id: crypto.randomUUID(), completed: false, reps: previous?.reps ?? '', weight: previous?.weight ?? '' }
 }
 
 function createExerciseDraft(exerciseId: string, canChangeExercise = false): ExerciseDraft {
-  return {
-    id: crypto.randomUUID(),
-    exerciseId,
-    canChangeExercise,
-    sets: [createEmptySet()],
-  }
+  return { id: crypto.randomUUID(), exerciseId, canChangeExercise, sets: [createSet()] }
 }
 
 function toWorkoutSet(draft: SetDraft): WorkoutSet {
-  return {
-    reps: Number(draft.reps),
-    weight: Number(draft.weight),
-    weightUnit: 'kg',
-  }
+  return { reps: Number(draft.reps), weight: Number(draft.weight || 0), weightUnit: 'kg' }
 }
 
-function WorkoutPage({ exercises, routines, onExerciseCreated, onWorkoutSaved }: WorkoutPageProps) {
-  const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null)
-  const [exerciseDrafts, setExerciseDrafts] = useState<ExerciseDraft[]>([])
-  const [exerciseToAddId, setExerciseToAddId] = useState(exercises[0]?.id ?? '')
+function useElapsed(startedAt: string | undefined): string {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!startedAt) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [startedAt])
+  if (!startedAt) return '0:00'
+  const seconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000))
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const rest = String(seconds % 60).padStart(2, '0')
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`
+}
+
+function WorkoutPage({ exercises, routines, workouts, onExerciseCreated, onWorkoutSaved, onClose }: WorkoutPageProps) {
+  const [draft, setDraft] = useState<WorkoutDraft | null>(loadDraft)
+  const [exerciseToAddId, setExerciseToAddId] = useState('')
   const [isAddingExercise, setIsAddingExercise] = useState(false)
   const [newExerciseName, setNewExerciseName] = useState('')
   const [newExerciseMuscleGroup, setNewExerciseMuscleGroup] = useState('')
   const [newExerciseEquipment, setNewExerciseEquipment] = useState('')
   const [isCreatingExercise, setIsCreatingExercise] = useState(false)
   const [createExerciseError, setCreateExerciseError] = useState<string | null>(null)
-  const [workoutNote, setWorkoutNote] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const elapsed = useElapsed(draft?.startedAt)
 
-  // The catalog now arrives asynchronously from FastAPI, so choose its first
-  // exercise after loading instead of relying only on the initial empty array.
-  useEffect(() => {
-    if (!exerciseToAddId && exercises.length > 0) {
-      setExerciseToAddId(exercises[0].id)
+  useEffect(() => storeDraft(draft), [draft])
+
+  // The most recent sets logged for each exercise, shown as "Previous" hints.
+  const previousSets = useMemo(() => {
+    const result = new Map<string, WorkoutSet[]>()
+    for (const workout of workouts) {
+      for (const entry of workout.exercises) {
+        if (!result.has(entry.exerciseId)) result.set(entry.exerciseId, entry.sets)
+      }
     }
-  }, [exerciseToAddId, exercises])
+    return result
+  }, [workouts])
 
-  const selectedRoutine = routines.find((routine) => routine.id === selectedRoutineId)
-  const completedSetCount = exerciseDrafts.reduce(
+  const addExerciseId = exerciseToAddId || exercises[0]?.id || ''
+  const selectedRoutine = routines.find((routine) => routine.id === draft?.routineId)
+  const completedSetCount = draft?.exercises.reduce(
     (total, exercise) => total + exercise.sets.filter((set) => set.completed).length,
     0,
-  )
+  ) ?? 0
 
-  function startRoutine(routine: WorkoutRoutine) {
-    setSelectedRoutineId(routine.id)
-    setExerciseDrafts(
-      routine.exercises.map((plannedExercise) =>
-        createExerciseDraft(plannedExercise.exerciseId),
-      ),
-    )
+  function updateExercises(update: (current: ExerciseDraft[]) => ExerciseDraft[]) {
+    setDraft((current) => (current ? { ...current, exercises: update(current.exercises) } : current))
   }
 
-  function startCustomWorkout() {
-    setSelectedRoutineId('custom')
-    setExerciseDrafts([createExerciseDraft(exercises[0]?.id ?? '', true)])
-  }
-
-  function updateSetDraft(exerciseDraftId: string, setId: string, updates: Partial<SetDraft>) {
-    setExerciseDrafts((currentExercises) =>
-      currentExercises.map((exercise) =>
+  function updateSet(exerciseDraftId: string, setId: string, updates: Partial<SetDraft>) {
+    updateExercises((current) =>
+      current.map((exercise) =>
         exercise.id === exerciseDraftId
-          ? {
-              ...exercise,
-              sets: exercise.sets.map((set) =>
-                set.id === setId ? { ...set, ...updates } : set,
-              ),
-            }
+          ? { ...exercise, sets: exercise.sets.map((set) => (set.id === setId ? { ...set, ...updates } : set)) }
           : exercise,
       ),
     )
   }
 
-  function addExerciseToWorkout() {
-    if (!exercises.some((exercise) => exercise.id === exerciseToAddId)) return
-    setExerciseDrafts((current) => [...current, createExerciseDraft(exerciseToAddId, true)])
+  function start(routineId: string, exerciseDrafts: ExerciseDraft[]) {
+    setDraft({ routineId, startedAt: new Date().toISOString(), exercises: exerciseDrafts, note: '' })
+    setSaveError(null)
+    window.scrollTo(0, 0)
+  }
+
+  function toggleComplete(exerciseDraft: ExerciseDraft, set: SetDraft, setIndex: number) {
+    if (set.completed) {
+      updateSet(exerciseDraft.id, set.id, { completed: false })
+      return
+    }
+    // Empty fields take last time's values, so repeating a set is one tap.
+    const previous = previousSets.get(exerciseDraft.exerciseId)?.[setIndex]
+    const reps = set.reps || (previous ? String(previous.reps) : '')
+    const weight = set.weight || (previous ? String(previous.weight) : '')
+    if (!reps || Number(reps) <= 0) return
+    updateSet(exerciseDraft.id, set.id, { completed: true, reps, weight: weight || '0' })
   }
 
   async function addCustomExercise() {
     const name = newExerciseName.trim()
     const primaryMuscleGroup = newExerciseMuscleGroup.trim()
     const equipment = newExerciseEquipment.trim()
-
     if (!name || !primaryMuscleGroup) return
-
-    const exercise: Omit<Exercise, 'id'> = {
-      name,
-      primaryMuscleGroup,
-      ...(equipment && { equipment }),
-    }
 
     setIsCreatingExercise(true)
     setCreateExerciseError(null)
     try {
-      const savedExercise = await onExerciseCreated(exercise)
-      setExerciseDrafts((current) => [...current, createExerciseDraft(savedExercise.id)])
+      const savedExercise = await onExerciseCreated({ name, primaryMuscleGroup, ...(equipment && { equipment }) })
+      updateExercises((current) => [...current, createExerciseDraft(savedExercise.id)])
       setExerciseToAddId(savedExercise.id)
       setNewExerciseName('')
       setNewExerciseMuscleGroup('')
       setNewExerciseEquipment('')
       setIsAddingExercise(false)
     } catch (error) {
-      setCreateExerciseError(
-        error instanceof Error ? error.message : 'Could not save this exercise.',
-      )
+      setCreateExerciseError(error instanceof Error ? error.message : 'Could not save this exercise.')
     } finally {
       setIsCreatingExercise(false)
     }
   }
 
-  function removeExercise(draftId: string) {
-    setExerciseDrafts((current) => current.filter((exercise) => exercise.id !== draftId))
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
-    if (completedSetCount === 0 || isSaving) return
+    if (!draft || completedSetCount === 0 || isSaving) return
 
     const workout: WorkoutSubmission = {
-      ...(selectedRoutineId && selectedRoutineId !== 'custom' && { routineId: selectedRoutineId }),
-      ...(workoutNote.trim() && { notes: workoutNote.trim() }),
-      exercises: exerciseDrafts.map((exercise) => ({
-        exerciseId: exercise.exerciseId,
-        sets: exercise.sets.filter((set) => set.completed).map(toWorkoutSet),
-      })).filter((exercise) => exercise.sets.length > 0),
+      ...(draft.routineId !== 'custom' && { routineId: draft.routineId }),
+      ...(draft.note.trim() && { notes: draft.note.trim() }),
+      exercises: draft.exercises
+        .map((exercise) => ({
+          exerciseId: exercise.exerciseId,
+          sets: exercise.sets.filter((set) => set.completed).map(toWorkoutSet),
+        }))
+        .filter((exercise) => exercise.sets.length > 0),
     }
 
     setIsSaving(true)
     setSaveError(null)
     try {
       await onWorkoutSaved(workout)
-      setSelectedRoutineId(null)
-      setExerciseDrafts([])
-      setWorkoutNote('')
+      setDraft(null)
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Could not save this workout.')
     } finally {
@@ -175,312 +204,275 @@ function WorkoutPage({ exercises, routines, onExerciseCreated, onWorkoutSaved }:
     }
   }
 
-  function handleCancel() {
-    setSelectedRoutineId(null)
-    setExerciseDrafts([])
+  function handleDiscard() {
+    if (completedSetCount > 0 && !window.confirm('Discard this workout? Completed sets will be lost.')) return
+    setDraft(null)
     setIsAddingExercise(false)
-    setWorkoutNote('')
   }
 
-  if (selectedRoutineId === null) {
+  if (!draft) {
     return (
-      <>
-        <header className="page-header">
+      <div className="stack">
+        <header className="page-title with-back">
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Back to home">
+            <ChevronLeftIcon />
+          </button>
           <div>
-            <p className="eyebrow">READY WHEN YOU ARE</p>
-            <h1>What are we training today?</h1>
-            <p className="page-intro">Choose a workout and your planned exercises will be ready to log.</p>
+            <h1>Start a workout</h1>
+            <p className="muted">Choose a routine. You can add or remove exercises as you go.</p>
           </div>
         </header>
 
-        <div className="routine-grid">
+        <div className="routine-list">
           {routines.map((routine) => (
             <button
-              className="routine-card"
+              className="card card-button routine-card"
               key={routine.id}
               type="button"
-              onClick={() => startRoutine(routine)}
+              onClick={() => start(routine.id, routine.exercises.map((planned) => createExerciseDraft(planned.exerciseId)))}
             >
-              <span className="routine-focus">{routine.muscleGroups.join(' + ')}</span>
-              <strong>{routine.name}</strong>
-              <span className="routine-exercise-count">
-                {routine.exercises.length} planned exercises
+              <span>
+                <strong>{routine.name}</strong>
+                <small className="muted">
+                  {routine.exercises.length} exercises · {routine.exercises.slice(0, 3).map((planned) => exerciseName(exercises, planned.exerciseId)).join(', ')}…
+                </small>
               </span>
-              <span className="routine-action">Start workout <span aria-hidden="true">→</span></span>
+              <ChevronRightIcon size={18} />
             </button>
           ))}
-          <button className="routine-card custom-routine-card" type="button" onClick={startCustomWorkout}>
-            <span className="routine-focus">MAKE IT YOURS</span>
-            <strong>Custom workout</strong>
-            <span className="routine-exercise-count">Choose your own exercises</span>
-            <span className="routine-action">Build workout <span aria-hidden="true">→</span></span>
+          <button
+            className="card card-button routine-card routine-card-empty"
+            type="button"
+            onClick={() => start('custom', [createExerciseDraft(exercises[0]?.id ?? '', true)])}
+          >
+            <span>
+              <strong>Empty workout</strong>
+              <small className="muted">Pick your own exercises</small>
+            </span>
+            <PlusIcon size={18} />
           </button>
         </div>
-      </>
+      </div>
     )
   }
 
   return (
-    <>
-      <header className="page-header">
+    <form className="workout-form" onSubmit={(event) => void handleSubmit(event)}>
+      <header className="workout-header">
         <div>
-          <p className="eyebrow">{selectedRoutine ? 'PLANNED WORKOUT' : 'CUSTOM WORKOUT'}</p>
-          <h1>{selectedRoutine?.name ?? 'Custom workout'}</h1>
-          <p className="page-intro">Your exercises are ready. Enter the sets you actually performed.</p>
+          <h1>{selectedRoutine?.name ?? 'Workout'}</h1>
+          <p className="muted small"><span className="live-dot" aria-hidden="true" /> {elapsed}</p>
         </div>
-        <button className="text-button" type="button" onClick={handleCancel}>
-          Change workout
+        <button className="button button-ghost button-danger" type="button" onClick={handleDiscard}>
+          Discard
         </button>
       </header>
 
-      <form className="workout-form" onSubmit={handleSubmit}>
-        <div className="exercise-draft-list">
-          {exerciseDrafts.map((exerciseDraft, exerciseIndex) => {
-            const exercise = exercises.find((item) => item.id === exerciseDraft.exerciseId)
+      <div className="stack">
+        {draft.exercises.map((exerciseDraft, exerciseIndex) => {
+          const exercise = exercises.find((item) => item.id === exerciseDraft.exerciseId)
+          const previous = previousSets.get(exerciseDraft.exerciseId)
 
-            return (
-              <article className="exercise-draft-card" key={exerciseDraft.id}>
-                <div className="exercise-draft-heading">
-                  <div>
-                    <span className="exercise-number">Exercise {exerciseIndex + 1}</span>
-                    {!exerciseDraft.canChangeExercise && exercise && (
-                      <h2 className="planned-exercise-name">{exercise.name}</h2>
-                    )}
-                  </div>
-                  <button
-                    className="text-button remove-exercise-button"
-                    type="button"
-                    onClick={() => removeExercise(exerciseDraft.id)}
-                    disabled={exerciseDrafts.length === 1}
-                    aria-label={'Remove exercise ' + (exerciseIndex + 1)}
-                  >
-                    Remove
-                  </button>
-                </div>
-
+          return (
+            <article className="card exercise-card" key={exerciseDraft.id}>
+              <div className="exercise-card-heading">
                 {exerciseDraft.canChangeExercise ? (
-                  <>
-                    <label className="field-label" htmlFor={'exercise-select-' + exerciseIndex}>Exercise</label>
-                    <select
-                      id={'exercise-select-' + exerciseIndex}
-                      className="form-control exercise-select"
-                      value={exerciseDraft.exerciseId}
-                      onChange={(event) =>
-                        setExerciseDrafts((current) =>
-                          current.map((draft) =>
-                            draft.id === exerciseDraft.id
-                              ? { ...draft, exerciseId: event.target.value }
-                              : draft,
-                          ),
-                        )
-                      }
-                      required
-                    >
-                      {exercises.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · {item.primaryMuscleGroup}
-                        </option>
-                      ))}
-                    </select>
-                  </>
+                  <select
+                    className="input exercise-select"
+                    aria-label={`Exercise ${exerciseIndex + 1}`}
+                    value={exerciseDraft.exerciseId}
+                    onChange={(event) =>
+                      updateExercises((current) =>
+                        current.map((item) => (item.id === exerciseDraft.id ? { ...item, exerciseId: event.target.value } : item)),
+                      )
+                    }
+                  >
+                    {exercises.map((item) => (
+                      <option key={item.id} value={item.id}>{item.name}</option>
+                    ))}
+                  </select>
                 ) : (
-                  <p className="exercise-focus">{exercise?.primaryMuscleGroup}</p>
+                  <div>
+                    <h2>{exercise?.name ?? 'Exercise'}</h2>
+                    <p className="muted small">{exercise?.primaryMuscleGroup}</p>
+                  </div>
                 )}
-
-                <div className="sets-heading">
-                  <span className="field-label">Your sets</span>
-                  <span className="sets-hint">Log what you completed</span>
-                </div>
-
-                <div className="set-list">
-                  {exerciseDraft.sets.map((draft, setIndex) => (
-                    <fieldset className="set-row" key={draft.id}>
-                      <legend>Set {setIndex + 1}</legend>
-                      <label>
-                        <span>Reps</span>
-                        <input
-                          className="form-control"
-                          type="number"
-                          min="1"
-                          step="1"
-                          inputMode="numeric"
-                          required={draft.completed}
-                          value={draft.reps}
-                          onChange={(event) => updateSetDraft(exerciseDraft.id, draft.id, { reps: event.target.value })}
-                        />
-                      </label>
-                      <label>
-                        <span>Weight (kg)</span>
-                        <input
-                          className="form-control"
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          inputMode="decimal"
-                          required={draft.completed}
-                          value={draft.weight}
-                          onChange={(event) => updateSetDraft(exerciseDraft.id, draft.id, { weight: event.target.value })}
-                        />
-                      </label>
-                      <button
-                        className="remove-set-button"
-                        type="button"
-                        aria-label={'Remove set ' + (setIndex + 1)}
-                        onClick={() =>
-                          setExerciseDrafts((current) =>
-                            current.map((item) =>
-                              item.id === exerciseDraft.id
-                                ? { ...item, sets: item.sets.filter((set) => set.id !== draft.id) }
-                                : item,
-                            ),
-                          )
-                        }
-                        disabled={exerciseDraft.sets.length === 1}
-                      >
-                        ×
-                      </button>
-                      <label className="set-complete-control">
-                        <input
-                          type="checkbox"
-                          checked={draft.completed}
-                          onChange={(event) => updateSetDraft(exerciseDraft.id, draft.id, { completed: event.target.checked })}
-                          aria-label={`Mark set ${setIndex + 1} complete`}
-                        />
-                        <span>Done</span>
-                      </label>
-                    </fieldset>
-                  ))}
-                </div>
-
                 <button
-                  className="add-set-button"
+                  className="icon-button"
+                  type="button"
+                  onClick={() => updateExercises((current) => current.filter((item) => item.id !== exerciseDraft.id))}
+                  disabled={draft.exercises.length === 1}
+                  aria-label={`Remove ${exercise?.name ?? 'exercise'}`}
+                >
+                  <TrashIcon size={18} />
+                </button>
+              </div>
+
+              <div className="set-table" role="group" aria-label={`${exercise?.name ?? 'Exercise'} sets`}>
+                <div className="set-table-head" aria-hidden="true">
+                  <span>Set</span><span>Previous</span><span>kg</span><span>Reps</span><span />
+                </div>
+                {exerciseDraft.sets.map((set, setIndex) => {
+                  const last = previous?.[setIndex]
+                  return (
+                    <div className={`set-table-row${set.completed ? ' completed' : ''}`} key={set.id}>
+                      <span className="set-number">{setIndex + 1}</span>
+                      <span className="set-previous">{last ? `${last.weight} × ${last.reps}` : '—'}</span>
+                      <input
+                        className="input set-input"
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        inputMode="decimal"
+                        aria-label={`Set ${setIndex + 1} weight in kg`}
+                        placeholder={last ? String(last.weight) : '0'}
+                        value={set.weight}
+                        onChange={(event) => updateSet(exerciseDraft.id, set.id, { weight: event.target.value })}
+                      />
+                      <input
+                        className="input set-input"
+                        type="number"
+                        min="1"
+                        step="1"
+                        inputMode="numeric"
+                        aria-label={`Set ${setIndex + 1} reps`}
+                        placeholder={last ? String(last.reps) : '0'}
+                        value={set.reps}
+                        onChange={(event) => updateSet(exerciseDraft.id, set.id, { reps: event.target.value })}
+                      />
+                      <button
+                        className="check-button"
+                        type="button"
+                        aria-pressed={set.completed}
+                        aria-label={`Mark set ${setIndex + 1} ${set.completed ? 'not done' : 'done'}`}
+                        onClick={() => toggleComplete(exerciseDraft, set, setIndex)}
+                      >
+                        <CheckIcon size={18} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="exercise-card-actions">
+                <button
+                  className="button button-soft"
                   type="button"
                   onClick={() =>
-                    setExerciseDrafts((current) =>
+                    updateExercises((current) =>
                       current.map((item) =>
                         item.id === exerciseDraft.id
-                          ? { ...item, sets: [...item.sets, createEmptySet()] }
+                          ? {
+                              ...item,
+                              // With history, leave fields empty so last time's values show as hints;
+                              // otherwise repeat this workout's last set.
+                              sets: [...item.sets, createSet(previous?.[item.sets.length] ? undefined : item.sets.at(-1))],
+                            }
                           : item,
                       ),
                     )
                   }
                 >
-                  + Add set
+                  <PlusIcon size={16} /> Add set
                 </button>
-              </article>
-            )
-          })}
-        </div>
-
-        <div className="exercise-add-row">
-          <label>
-            <span className="field-label">Add an exercise</span>
-            <select
-              className="form-control"
-              value={exerciseToAddId}
-              onChange={(event) => setExerciseToAddId(event.target.value)}
-            >
-              {exercises.map((exercise) => (
-                <option key={exercise.id} value={exercise.id}>
-                  {exercise.name} · {exercise.primaryMuscleGroup}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={addExerciseToWorkout}
-            disabled={!exerciseToAddId}
-          >
-            + Add exercise
-          </button>
-        </div>
-
-        {isAddingExercise ? (
-          <div className="exercise-create-panel" aria-labelledby="add-exercise-title">
-            <div className="exercise-create-heading">
-              <div>
-                <p className="eyebrow">YOUR EXERCISE LIST</p>
-                <h2 id="add-exercise-title">Add a custom exercise</h2>
+                {exerciseDraft.sets.length > 1 && (
+                  <button
+                    className="button button-ghost"
+                    type="button"
+                    onClick={() =>
+                      updateExercises((current) =>
+                        current.map((item) => (item.id === exerciseDraft.id ? { ...item, sets: item.sets.slice(0, -1) } : item)),
+                      )
+                    }
+                  >
+                    Remove last
+                  </button>
+                )}
               </div>
-              <button className="text-button" type="button" onClick={() => setIsAddingExercise(false)}>
-                Cancel
+            </article>
+          )
+        })}
+
+        <section className="card">
+          <label className="field">
+            <span className="field-label">Add exercise</span>
+            <div className="inline-field">
+              <select className="input" value={addExerciseId} onChange={(event) => setExerciseToAddId(event.target.value)}>
+                {exercises.map((exercise) => (
+                  <option key={exercise.id} value={exercise.id}>{exercise.name} · {exercise.primaryMuscleGroup}</option>
+                ))}
+              </select>
+              <button
+                className="button button-secondary"
+                type="button"
+                disabled={!addExerciseId}
+                onClick={() => updateExercises((current) => [...current, createExerciseDraft(addExerciseId, true)])}
+              >
+                Add
               </button>
             </div>
-            <div className="exercise-create-fields">
-              <label>
-                <span className="field-label">Exercise name</span>
-                <input
-                  className="form-control"
-                  type="text"
-                  value={newExerciseName}
-                  onChange={(event) => setNewExerciseName(event.target.value)}
-                  placeholder="e.g. Bulgarian split squat"
-                  required
-                />
-              </label>
-              <label>
-                <span className="field-label">Primary muscle group</span>
-                <input
-                  className="form-control"
-                  type="text"
-                  value={newExerciseMuscleGroup}
-                  onChange={(event) => setNewExerciseMuscleGroup(event.target.value)}
-                  placeholder="e.g. Legs"
-                  required
-                />
-              </label>
-              <label>
-                <span className="field-label">Equipment <small>optional</small></span>
-                <input
-                  className="form-control"
-                  type="text"
-                  value={newExerciseEquipment}
-                  onChange={(event) => setNewExerciseEquipment(event.target.value)}
-                  placeholder="e.g. Dumbbell"
-                />
-              </label>
-            </div>
-            {createExerciseError && <p role="alert">Exercise was not saved: {createExerciseError}</p>}
-            <button
-              className="add-set-button"
-              type="button"
-              onClick={addCustomExercise}
-              disabled={!newExerciseName.trim() || !newExerciseMuscleGroup.trim() || isCreatingExercise}
-            >
-              {isCreatingExercise ? 'Saving exercise…' : '+ Create and add to workout'}
-            </button>
-          </div>
-        ) : (
-          <button className="add-set-button add-exercise-trigger" type="button" onClick={() => setIsAddingExercise(true)}>
-            + Create a custom exercise
-          </button>
-        )}
+          </label>
 
-        <label className="workout-note-field">
-          <span className="field-label">Workout note <small>optional</small></span>
+          {isAddingExercise ? (
+            <div className="stack-sm create-exercise">
+              <h3>New exercise</h3>
+              <label className="field">
+                <span className="field-label">Name</span>
+                <input className="input" type="text" value={newExerciseName} onChange={(event) => setNewExerciseName(event.target.value)} placeholder="e.g. Cable row" />
+              </label>
+              <div className="field-grid">
+                <label className="field">
+                  <span className="field-label">Muscle group</span>
+                  <input className="input" type="text" value={newExerciseMuscleGroup} onChange={(event) => setNewExerciseMuscleGroup(event.target.value)} placeholder="e.g. Back" />
+                </label>
+                <label className="field">
+                  <span className="field-label">Equipment <small className="muted">optional</small></span>
+                  <input className="input" type="text" value={newExerciseEquipment} onChange={(event) => setNewExerciseEquipment(event.target.value)} placeholder="e.g. Cable" />
+                </label>
+              </div>
+              {createExerciseError && <p className="alert alert-error" role="alert">{createExerciseError}</p>}
+              <div className="inline-actions">
+                <button className="button button-ghost" type="button" onClick={() => setIsAddingExercise(false)}>Cancel</button>
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => void addCustomExercise()}
+                  disabled={!newExerciseName.trim() || !newExerciseMuscleGroup.trim() || isCreatingExercise}
+                >
+                  {isCreatingExercise ? 'Saving…' : 'Create & add'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button className="link-button create-exercise-link" type="button" onClick={() => setIsAddingExercise(true)}>
+              Can’t find it? Create a custom exercise
+            </button>
+          )}
+        </section>
+
+        <label className="card field">
+          <span className="field-label">Notes <small className="muted">optional</small></span>
           <textarea
-            className="form-control"
+            className="input"
             rows={2}
-            value={workoutNote}
-            onChange={(event) => setWorkoutNote(event.target.value)}
-            placeholder="Anything to remember?"
+            value={draft.note}
+            onChange={(event) => setDraft({ ...draft, note: event.target.value })}
+            placeholder="How did it feel?"
           />
         </label>
 
-        {saveError && <p role="alert">Workout was not saved: {saveError}</p>}
+        {saveError && <p className="alert alert-error" role="alert">Workout was not saved: {saveError}</p>}
+      </div>
 
-        <div className="form-actions">
-          <button className="text-button cancel-workout-button" type="button" onClick={handleCancel}>
-            Cancel workout
-          </button>
-          <button className="primary-button" type="submit" disabled={completedSetCount === 0 || isSaving}>
-            {isSaving ? 'Saving…' : 'Finish workout'}
-          </button>
-        </div>
-      </form>
-    </>
+      <div className="finish-bar">
+        <span className="muted small">
+          {completedSetCount === 0 ? 'Tap ✓ to complete a set' : `${completedSetCount} ${completedSetCount === 1 ? 'set' : 'sets'} done`}
+        </span>
+        <button className="button button-primary" type="submit" disabled={completedSetCount === 0 || isSaving}>
+          {isSaving ? 'Saving…' : 'Finish'}
+        </button>
+      </div>
+    </form>
   )
 }
 

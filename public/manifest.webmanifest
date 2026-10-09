@@ -1,13 +1,14 @@
 {
   "name": "Leaner — Workout Tracker",
   "short_name": "Leaner",
-  "description": "Track your workouts and follow your training progress.",
+  "description": "Log workouts, track progress, and get advice from your AI coach.",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#0d1210",
-  "theme_color": "#0d1210",
+  "background_color": "#0b0f0d",
+  "theme_color": "#0b0f0d",
   "categories": ["health", "fitness"],
   "icons": [
     {

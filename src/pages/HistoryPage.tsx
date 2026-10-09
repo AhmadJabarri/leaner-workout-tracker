@@ -1,106 +1,93 @@
-import type { Exercise, WorkoutSession } from '../types/workout'
+import { DumbbellIcon } from '../components/Icons'
+import type { Exercise, WorkoutRoutine, WorkoutSession } from '../types/workout'
+import { exerciseName, formatDay, formatTime, formatVolume, setCount, workoutVolume } from '../utils/format'
 
 type HistoryPageProps = {
   workouts: WorkoutSession[]
   exercises: Exercise[]
+  routines: WorkoutRoutine[]
+  onStartWorkout: () => void
 }
 
-function HistoryPage({ workouts, exercises }: HistoryPageProps) {
-  const totalSessions = workouts.length
-  const totalExercises = workouts.reduce((total, workout) => total + workout.exercises.length, 0)
+function monthLabel(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+}
+
+function HistoryPage({ workouts, exercises, routines, onStartWorkout }: HistoryPageProps) {
+  if (workouts.length === 0) {
+    return (
+      <div className="stack">
+        <header className="page-title"><h1>History</h1></header>
+        <section className="empty-state">
+          <span className="icon-badge icon-badge-lg"><DumbbellIcon size={28} /></span>
+          <h2>No workouts yet</h2>
+          <p className="muted">Finish a workout and it will appear here with every set.</p>
+          <button className="button button-primary" type="button" onClick={onStartWorkout}>Start a workout</button>
+        </section>
+      </div>
+    )
+  }
+
+  // Workouts arrive newest first; group them under month headings.
+  const groups: { month: string; items: WorkoutSession[] }[] = []
+  for (const workout of workouts) {
+    const month = monthLabel(workout.performedAt)
+    const group = groups.at(-1)
+    if (group?.month === month) group.items.push(workout)
+    else groups.push({ month, items: [workout] })
+  }
 
   return (
-    <>
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">YOUR TRAINING RECORD</p>
-          <h1>History</h1>
-          <p className="page-intro">Your completed sessions, in one place.</p>
-        </div>
-        {totalSessions > 0 && (
-          <div className="history-summary">
-            <span>{totalSessions} {totalSessions === 1 ? 'session' : 'sessions'}</span>
-            <span>{totalExercises} {totalExercises === 1 ? 'exercise' : 'exercise entries'}</span>
-          </div>
-        )}
+    <div className="stack">
+      <header className="page-title">
+        <h1>History</h1>
+        <p className="muted">{workouts.length} {workouts.length === 1 ? 'workout' : 'workouts'} logged</p>
       </header>
 
-      {workouts.length === 0 ? (
-        <section className="empty-state" aria-labelledby="history-empty-title">
-          <div className="empty-icon" aria-hidden="true">
-            <span className="empty-bar bar-short" />
-            <span className="empty-bar bar-long" />
-            <span className="empty-bar bar-short" />
-          </div>
-          <h2 id="history-empty-title">No sessions yet</h2>
-          <p>After you save a workout, it will appear here with each exercise and its sets.</p>
-        </section>
-      ) : (
-        <section className="history-list" aria-label="Workout history">
-          {workouts.map((workout) => {
-            const setCount = workout.exercises.reduce((total, exercise) => total + exercise.sets.length, 0)
-
+      {groups.map((group) => (
+        <section className="stack-sm" key={group.month} aria-label={group.month}>
+          <h2 className="section-label">{group.month}</h2>
+          {group.items.map((workout) => {
+            const routineName = routines.find((routine) => routine.id === workout.routineId)?.name ?? 'Workout'
             return (
-              <article className="workout-card" key={workout.id}>
-                <header className="workout-card-heading">
-                  <div>
-                    <h2>{new Date(workout.performedAt).toLocaleDateString(undefined, {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}</h2>
-                    <p>{new Date(workout.performedAt).toLocaleTimeString(undefined, {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}</p>
+              <details className="card history-card" key={workout.id}>
+                <summary>
+                  <div className="history-card-top">
+                    <div>
+                      <strong>{routineName}</strong>
+                      <p className="muted small">{formatDay(workout.performedAt)} · {formatTime(workout.performedAt)}</p>
+                    </div>
+                    <span className="history-chevron" aria-hidden="true" />
                   </div>
-                  <span className="workout-set-count">
-                    {workout.exercises.length} {workout.exercises.length === 1 ? 'exercise' : 'exercises'} · {setCount} sets
-                  </span>
-                </header>
+                  <div className="history-meta">
+                    <span>{workout.exercises.length} {workout.exercises.length === 1 ? 'exercise' : 'exercises'}</span>
+                    <span>{setCount(workout)} sets</span>
+                    <span>{formatVolume(workoutVolume(workout))}</span>
+                  </div>
+                </summary>
 
-                {workout.notes && <p className="history-workout-note">“{workout.notes}”</p>}
-
-                <div className="workout-card-exercises">
-                  {workout.exercises.map((entry, exerciseIndex) => {
-                    const exercise = exercises.find((item) => item.id === entry.exerciseId)
-
-                    return (
-                      <section
-                        className="workout-card-exercise"
-                        key={workout.id + '-' + exerciseIndex}
-                        aria-label={exercise?.name ?? 'Exercise'}
-                      >
-                        <div className="history-exercise-heading">
-                          <h3>{exercise?.name ?? 'Exercise'}</h3>
-                          <span>{exercise?.primaryMuscleGroup}</span>
-                        </div>
-                        <div className="history-set-list">
-                          {entry.sets.map((set, setIndex) => (
-                            <div className="history-set-row" key={workout.id + '-' + exerciseIndex + '-' + setIndex}>
-                              <span className="history-set-number">Set {setIndex + 1}</span>
-                              <span>{set.reps} reps</span>
-                              <span>{set.weight} {set.weightUnit}</span>
-                              {(set.rpe !== undefined || set.rir !== undefined) && (
-                                <span className="history-effort">
-                                  {set.rpe !== undefined && 'RPE ' + set.rpe}
-                                  {set.rpe !== undefined && set.rir !== undefined && ' · '}
-                                  {set.rir !== undefined && 'RIR ' + set.rir}
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </section>
-                    )
-                  })}
+                <div className="history-detail">
+                  {workout.notes && <p className="history-note">“{workout.notes}”</p>}
+                  {workout.exercises.map((entry, index) => (
+                    <div className="history-exercise" key={`${workout.id}-${index}`}>
+                      <strong>{exerciseName(exercises, entry.exerciseId)}</strong>
+                      <ol className="history-sets">
+                        {entry.sets.map((set, setIndex) => (
+                          <li key={setIndex}>
+                            <span className="muted">{setIndex + 1}</span>
+                            {set.weight} kg × {set.reps}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ))}
                 </div>
-              </article>
+              </details>
             )
           })}
         </section>
-      )}
-    </>
+      ))}
+    </div>
   )
 }
 
